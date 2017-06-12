@@ -31,6 +31,7 @@ typedef struct {
     struct addrinfo *addr;
     uint64_t connections;
     int interval;
+    uint64_t tid;
     uint64_t stop_at;
     uint64_t complete;
     uint64_t requests;

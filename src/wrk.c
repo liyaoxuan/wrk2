@@ -8,6 +8,10 @@
 
 // Max recordable latency of 1 day
 #define MAX_LATENCY 24L * 60 * 60 * 1000000
+#define MAXL 1000000
+#define MAXTHREADS 40
+
+uint64_t raw_latency[MAXTHREADS][MAXL];
 
 static struct config {
     uint64_t threads;
@@ -21,6 +25,7 @@ static struct config {
     bool     u_latency;
     bool     dynamic;
     bool     record_all_responses;
+    bool     print_all_responses;
     char    *script;
     SSL_CTX *ctx;
 } cfg;
@@ -190,6 +195,18 @@ int main(int argc, char **argv) {
 
         hdr_add(latency_histogram, t->latency_histogram);
         hdr_add(u_latency_histogram, t->u_latency_histogram);
+        
+        if (cfg.print_all_responses) {
+            char filename[10] = {0};
+            sprintf(filename, "%" PRIu64 ".txt", i);
+            FILE* ff = fopen(filename, "w");
+            uint64_t nnum=MAXL;
+            if ((t->complete) < nnum) nnum = t->complete;
+            printf("tid = %" PRIu64 ", nnum = %" PRIu64"\n", i, nnum);
+            for (uint64_t j=1; j < nnum; ++j)
+                fprintf(ff, "%" PRIu64 "\n", raw_latency[i][j]);
+            fclose(ff);
+        }
     }
 
     long double runtime_s   = runtime_us / 1000000.0;
@@ -553,6 +570,8 @@ static int response_complete(http_parser *parser) {
 
         uint64_t actual_latency_timing = now - c->actual_latency_start;
         hdr_record_value(thread->u_latency_histogram, actual_latency_timing);
+        if (cfg.print_all_responses && ((thread->complete) < MAXL)) 
+            raw_latency[thread->tid][thread->complete] = expected_latency_timing;
     }
 
 
@@ -714,8 +733,9 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
     cfg->timeout     = SOCKET_TIMEOUT_MS;
     cfg->rate        = 0;
     cfg->record_all_responses = true;
+    cfg->print_all_responses = false;
 
-    while ((c = getopt_long(argc, argv, "t:c:d:s:H:T:R:LUBrv?", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "t:c:d:s:H:T:R:LPUBrv?", longopts, NULL)) != -1) {
         switch (c) {
             case 't':
                 if (scan_metric(optarg, &cfg->threads)) return -1;
@@ -732,6 +752,8 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
             case 'H':
                 *header++ = optarg;
                 break;
+            case 'P':
+                cfg->print_all_responses = true;
             case 'L':
                 cfg->latency = true;
                 break;
