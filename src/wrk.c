@@ -140,6 +140,7 @@ int main(int argc, char **argv) {
         if (i == 0) {
             cfg.pipeline = script_verify_request(t->L);
             cfg.dynamic = !script_is_static(t->L);
+            printf("pipeline = %d\n", cfg.pipeline);
             if (script_want_response(t->L)) {
                 parser_settings.on_header_field = header_field;
                 parser_settings.on_header_value = header_value;

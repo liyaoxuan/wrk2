@@ -40,11 +40,23 @@ end
 
 print("multiplepaths: Found " .. #paths .. " paths")
 
+init = function(args)
+    depth = tonumber(args[1]) or 1
+end
+
 request = function()
     path = paths[counter]
     counter = counter + 1
     if counter > #paths then
       counter = 0
     end
-    return wrk.format(nil, path)
+--    return wrk.format(nil, path)
+    
+--    depth = tonumber(args[1]) or 1
+    local r = {}
+    for i=1, depth do
+        r[i] = wrk.format(nil, path)
+    end
+    req = table.concat(r)
+    return req
 end
