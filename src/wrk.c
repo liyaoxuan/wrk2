@@ -573,7 +573,7 @@ static int response_complete(http_parser *parser) {
         uint64_t actual_latency_timing = now - c->actual_latency_start;
         hdr_record_value(thread->u_latency_histogram, actual_latency_timing);
         if (cfg.print_all_responses && ((thread->complete) < MAXL)) 
-            raw_latency[thread->tid][thread->complete] = expected_latency_timing;
+            raw_latency[thread->tid][thread->complete] = actual_latency_timing;
     }
 
 

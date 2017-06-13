@@ -3,6 +3,7 @@
 *.txt
 wrk
 
+run.sh
 deps/luajit/src/host/buildvm
 deps/luajit/src/host/buildvm_arch.h
 deps/luajit/src/host/minilua
