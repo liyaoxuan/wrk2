@@ -1,6 +1,23 @@
 # wrk2
 [![Gitter](https://badges.gitter.im/Join Chat.svg)](https://gitter.im/giltene/wrk2?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
+  ** Modifications made by Shuang **
+
+  wrk and wrk2 are both close-loop load generators; a new request cannot be
+  sent unless responses of previous requests have been received. wrk2
+  recognizes the problem of such approach by incorporating client side delays
+  into the newly reported delay. However, such changes in latency reporting do
+  not fundamentally resolve the issue of close-loop. In fact, such revised
+  reporting may be even more misleading than wrk. Requests are not sent out
+  at their scheduled time, thus do not create more traffic to the server.
+  Queuing delays because of pipelined requests are totally ignored.
+
+  In this modification, I fundamentally changed the load generator to be
+  open-loop; requests are sent out according to the schedule no matter what. Any
+  traffic on the server side will be directly refected in the real latency,
+  so we don't have to approximate that as wrk2. Latency reporting is the same as 
+  wrk. 
+
   **a HTTP benchmarking tool based mostly on wrk**
 
   wrk2 is wrk modifed to produce a constant throughput load, and
