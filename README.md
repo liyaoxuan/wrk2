@@ -1,7 +1,7 @@
 # wrk2
 [![Gitter](https://badges.gitter.im/Join Chat.svg)](https://gitter.im/giltene/wrk2?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
-  ** Modifications made by Shuang **
+  **Modifications made by Shuang**
 
   wrk and wrk2 are both close-loop load generators; a new request cannot be
   sent unless responses of previous requests have been received. wrk2
