@@ -39,6 +39,9 @@ typedef struct {
     uint64_t stop_at;
     uint64_t complete;
     uint64_t requests;
+    uint64_t monitored;
+    uint64_t target;
+    uint64_t accum_latency;
     uint64_t bytes;
     uint64_t start;
     double throughput;
@@ -48,6 +51,7 @@ typedef struct {
     lua_State *L;
     errors errors;
     struct connection *cs;
+    FILE* ff;
 } thread;
 
 typedef struct {

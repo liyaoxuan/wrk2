@@ -24,6 +24,7 @@ static struct config {
     bool     dynamic;
     bool     record_all_responses;
     bool     print_all_responses;
+    bool     print_realtime_latency;
     char    *script;
     SSL_CTX *ctx;
 } cfg;
@@ -118,19 +119,22 @@ int main(int argc, char **argv) {
         fprintf(stderr, "unable to connect to %s:%s %s\n", host, service, msg);
         exit(1);
     }
-    
+
     uint64_t connections = cfg.connections / cfg.threads;
     uint64_t throughput = cfg.rate / cfg.threads;
     uint64_t stop_at     = time_us() + (cfg.duration * 1000000);
 
     for (uint64_t i = 0; i < cfg.threads; i++) {
         thread *t = &threads[i];
-        t->tid         = i;
-        t->loop        = aeCreateEventLoop(10 + cfg.connections * 3);
-        t->connections = connections;
-        t->throughput = throughput;;
-        t->stop_at     = stop_at;
-
+        t->tid           = i;
+        t->loop          = aeCreateEventLoop(10 + cfg.connections * 3);
+        t->connections   = connections;
+        t->throughput    = throughput;
+        t->stop_at       = stop_at;
+        t->complete      = 0;
+        t->monitored     = 0;
+        t->target        = throughput/10;
+        t->accum_latency = 0;
         t->L = script_create(cfg.script, url, headers);
         script_init(L, t, argc - optind, &argv[optind]);
 
@@ -262,6 +266,13 @@ void *thread_main(void *arg) {
     if (!cfg.dynamic) {
         script_request(thread->L, &request, &length);
     }
+    
+    if (cfg.print_realtime_latency) {
+        char filename[50];
+        snprintf(filename, 50, "/filer-01/datasets/nginx/real_%" PRIu64 ".txt", thread->tid);
+        thread->ff = fopen(filename, "w");
+    }
+
 
     double throughput = (thread->throughput / 1000000.0) / thread->connections;
 
@@ -290,6 +301,7 @@ void *thread_main(void *arg) {
 
     aeDeleteEventLoop(loop);
     zfree(thread->cs);
+    if (cfg.print_realtime_latency) fclose(thread->ff);
 
     return NULL;
 }
@@ -485,6 +497,17 @@ static int response_complete(http_parser *parser) {
         assert(now > c->actual_latency_start[c->complete & MAXO] );
         uint64_t actual_latency_timing = now - c->actual_latency_start[c->complete & MAXO];
         hdr_record_value(thread->latency_histogram, actual_latency_timing);
+        
+        thread->monitored++;
+        thread->accum_latency += actual_latency_timing;
+        if (thread->monitored == thread->target) {       
+            if (cfg.print_realtime_latency) {
+                fprintf(thread->ff, "%" PRIu64 "\n", thread->accum_latency/thread->monitored);
+                fflush(thread->ff);
+            }
+            thread->monitored = 0;
+            thread->accum_latency = 0;
+        }
         if (cfg.print_all_responses && ((thread->complete) < MAXL)) 
             raw_latency[thread->tid][thread->complete] = actual_latency_timing;
     }
@@ -645,8 +668,9 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
     cfg->rate        = 0;
     cfg->record_all_responses = true;
     cfg->print_all_responses = false;
+    cfg->print_realtime_latency = false;
 
-    while ((c = getopt_long(argc, argv, "t:c:d:s:H:T:R:LPBrv?", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "t:c:d:s:H:T:R:LPpBrv?", longopts, NULL)) != -1) {
         switch (c) {
             case 't':
                 if (scan_metric(optarg, &cfg->threads)) return -1;
@@ -663,8 +687,12 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
             case 'H':
                 *header++ = optarg;
                 break;
-            case 'P':
+            case 'P': /* Shuang: print each requests's latency */
                 cfg->print_all_responses = true;
+                break;
+            case 'p': /* Shuang: print avg latency every 0.1s */
+                cfg->print_realtime_latency = true;
+                break;
             case 'L':
                 cfg->latency = true;
                 break;
