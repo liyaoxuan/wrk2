@@ -502,7 +502,8 @@ static int response_complete(http_parser *parser) {
         thread->accum_latency += actual_latency_timing;
         if (thread->monitored == thread->target) {       
             if (cfg.print_realtime_latency) {
-                fprintf(thread->ff, "%" PRIu64 "\n", thread->accum_latency/thread->monitored);
+              //  fprintf(thread->ff, "%" PRIu64 "\n", thread->lat[int(thread->monitored*0.99)]);
+                fprintf(thread->ff, "%" PRId64 "\n", hdr_value_at_percentile(thread->latency_histogram, 99));
                 fflush(thread->ff);
             }
             thread->monitored = 0;
