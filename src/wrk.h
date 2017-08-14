@@ -47,6 +47,7 @@ typedef struct {
     double throughput;
     uint64_t mean;
     struct hdr_histogram *latency_histogram;
+    struct hdr_histogram *real_latency_histogram;
     tinymt64_t rand;
     lua_State *L;
     errors errors;

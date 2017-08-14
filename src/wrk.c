@@ -112,7 +112,7 @@ int main(int argc, char **argv) {
 
     hdr_init(1, MAX_LATENCY, 3, &(statistics.requests->histogram));
 
-
+    printf("wahahahah");
     lua_State *L = script_create(cfg.script, url, headers);
     if (!script_resolve(L, host, service)) {
         char *msg = strerror(errno);
@@ -133,7 +133,7 @@ int main(int argc, char **argv) {
         t->stop_at       = stop_at;
         t->complete      = 0;
         t->monitored     = 0;
-        t->target        = throughput/10;
+        t->target        = throughput/5; //Shuang
         t->accum_latency = 0;
         t->L = script_create(cfg.script, url, headers);
         script_init(L, t, argc - optind, &argv[optind]);
@@ -174,7 +174,9 @@ int main(int argc, char **argv) {
     errors errors     = { 0 };
 
     struct hdr_histogram* latency_histogram;
+    struct hdr_histogram* real_latency_histogram;
     hdr_init(1, MAX_LATENCY, 3, &latency_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &real_latency_histogram);
 
     for (uint64_t i = 0; i < cfg.threads; i++) {
         thread *t = &threads[i];
@@ -195,6 +197,7 @@ int main(int argc, char **argv) {
         errors.status  += t->errors.status;
 
         hdr_add(latency_histogram, t->latency_histogram);
+        hdr_add(real_latency_histogram, t->real_latency_histogram);
         
         if (cfg.print_all_responses) {
             char filename[10] = {0};
@@ -259,6 +262,7 @@ void *thread_main(void *arg) {
     thread->cs = zcalloc(thread->connections * sizeof(connection));
     tinymt64_init(&thread->rand, time_us());
     hdr_init(1, MAX_LATENCY, 3, &thread->latency_histogram);
+    hdr_init(1, MAX_LATENCY, 3, &thread->real_latency_histogram);
 
     char *request = NULL;
     size_t length = 0;
@@ -497,17 +501,19 @@ static int response_complete(http_parser *parser) {
         assert(now > c->actual_latency_start[c->complete & MAXO] );
         uint64_t actual_latency_timing = now - c->actual_latency_start[c->complete & MAXO];
         hdr_record_value(thread->latency_histogram, actual_latency_timing);
-        
+        hdr_record_value(thread->real_latency_histogram, actual_latency_timing);
+    
         thread->monitored++;
         thread->accum_latency += actual_latency_timing;
         if (thread->monitored == thread->target) {       
             if (cfg.print_realtime_latency) {
               //  fprintf(thread->ff, "%" PRIu64 "\n", thread->lat[int(thread->monitored*0.99)]);
-                fprintf(thread->ff, "%" PRId64 "\n", hdr_value_at_percentile(thread->latency_histogram, 99));
+                fprintf(thread->ff, "%" PRId64 "\n", hdr_value_at_percentile(thread->real_latency_histogram, 99));
                 fflush(thread->ff);
             }
             thread->monitored = 0;
             thread->accum_latency = 0;
+            hdr_reset(thread->real_latency_histogram);
         }
         if (cfg.print_all_responses && ((thread->complete) < MAXL)) 
             raw_latency[thread->tid][thread->complete] = actual_latency_timing;
