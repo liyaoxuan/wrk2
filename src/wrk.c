@@ -15,6 +15,7 @@ uint64_t raw_latency[MAXTHREADS][MAXL];
 static struct config {
     uint64_t threads;
     uint64_t connections;
+    int dist; //0: fixed; 1: exp; 2: normal; 3: zipf
     uint64_t duration;
     uint64_t timeout;
     uint64_t pipeline;
@@ -56,6 +57,7 @@ static void usage() {
     printf("Usage: wrk <options> <url>                            \n"
            "  Options:                                            \n"
            "    -c, --connections <N>  Connections to keep open   \n"
+           "    -D, --dist             exp, zipf     \n"
            "    -d, --duration    <T>  Duration of test           \n"
            "    -t, --threads     <N>  Number of threads to use   \n"
            "                                                      \n"
@@ -112,7 +114,6 @@ int main(int argc, char **argv) {
 
     hdr_init(1, MAX_LATENCY, 3, &(statistics.requests->histogram));
 
-    printf("wahahahah");
     lua_State *L = script_create(cfg.script, url, headers);
     if (!script_resolve(L, host, service)) {
         char *msg = strerror(errno);
@@ -141,7 +142,6 @@ int main(int argc, char **argv) {
         if (i == 0) {
             cfg.pipeline = script_verify_request(t->L);
             cfg.dynamic = !script_is_static(t->L);
-            printf("pipeline = %d\n", cfg.pipeline);
             if (script_want_response(t->L)) {
                 parser_settings.on_header_field = header_field;
                 parser_settings.on_header_value = header_value;
@@ -287,8 +287,10 @@ void *thread_main(void *arg) {
         c->ssl        = cfg.ctx ? SSL_new(cfg.ctx) : NULL;
         c->request    = request;
         c->length     = length;
+        c->interval   = 1000000*thread->connections/thread->throughput;
         c->throughput = throughput;
         c->complete   = 0;
+        c->estimate   = 0;
         c->sent       = 0;
         // Stagger connects 5 msec apart within thread:
         aeCreateTimeEvent(loop, i * 5, delayed_initial_connect, c, NULL);
@@ -350,6 +352,7 @@ static int reconnect_socket(thread *thread, connection *c) {
 static int delayed_initial_connect(aeEventLoop *loop, long long id, void *data) {
     connection* c = data;
     c->thread_start = time_us();
+    c->thread_next  = c->thread_start;
     connect_socket(c->thread, c);
     return AE_NOMORE;
 }
@@ -442,23 +445,74 @@ static int response_body(http_parser *parser, const char *at, size_t len) {
     return 0;
 }
 
-static uint64_t usec_to_next_send(connection *c) {
-    uint64_t now = time_us();
+uint64_t gen_zipf(connection *conn)
+{
+    static int first = 1;      // Static first time flag
+    static double c = 0;          // Normalization constant
+    static double scalar = 0;
+    double z;                     // Uniform random number (0 < z < 1)
+    double sum_prob;              // Sum of probabilities
+    double zipf_value;            // Computed exponential value to be returned
+    int n = 100;
+    double alpha = 3;
 
-    uint64_t next_start_time = c->thread_start + (c->sent / c->throughput);
-    bool send_now = true;
-
-    if (next_start_time > now) {
-        // We are on pace. Indicate caught_up and don't send now.
-        send_now = false;
-    } else {
-        send_now = true;
-        next_start_time = now;
+    // Compute normalization constant on first call only
+    if (first == 1)
+    {
+        for (int i=1; i<=n; i++)
+            c = c + (1.0 / pow((double) i, alpha));
+        c = 1.0 / c;
+        for (int i=1; i<=n; i++) {
+            double prob = c / pow((double) i, alpha);
+            scalar = scalar + i*prob;
+        }
+        scalar = conn->interval / scalar;
+        first = 0;
     }
 
-    assert(next_start_time >= now);
-    //printf("%"PRIu64": %" PRIu64 "\n", c->sent, next_start_time - now);
-    return send_now ? 0 : (next_start_time - now);
+  // Pull a uniform random number (0 < z < 1)
+    do
+    {
+        z = (double)rand()/RAND_MAX;
+    }
+    while ((z == 0) || (z == 1));
+
+    // Map z to the value
+    sum_prob = 0;
+    for (int i=1; i<=n; i++)
+    {
+        sum_prob = sum_prob + c / pow((double) i, alpha);
+        if (sum_prob >= z)
+        {
+            zipf_value = i;
+            break;
+        }
+    }
+    return (uint64_t)(zipf_value*scalar);
+}
+
+uint64_t gen_next(connection *c) {
+    if (cfg.dist == 0) { // FIXED
+        return c->interval;
+    }
+    else if (cfg.dist == 3) {
+       return gen_zipf(c);
+    }
+    return 0;
+}
+
+static uint64_t usec_to_next_send(connection *c) {
+    uint64_t now = time_us();
+    //c->thread_next = c->thread_start + c->sent/c->throughput;
+    //printf("%f\n", 1/c->throughput);
+    if (c->estimate <= c->sent) {
+        ++c->estimate;
+        c->thread_next += gen_next(c);
+    }
+    if ((c->thread_next) > now) 
+        return c->thread_next - now;
+    else
+        return 0;
 }
 
 static int delay_request(aeEventLoop *loop, long long id, void *data) {
@@ -478,6 +532,7 @@ static int response_complete(http_parser *parser) {
     int status = parser->status_code;
 
     thread->complete++;
+    //printf("complete %"PRIu64"\n", thread->complete);
     thread->requests++;
 
     if (status > 399) {
@@ -676,14 +731,27 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
     cfg->record_all_responses = true;
     cfg->print_all_responses = false;
     cfg->print_realtime_latency = false;
+    cfg->dist = 0;
 
-    while ((c = getopt_long(argc, argv, "t:c:d:s:H:T:R:LPpBrv?", longopts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "t:c:d:s:D:H:T:R:LPpBrv?", longopts, NULL)) != -1) {
         switch (c) {
             case 't':
                 if (scan_metric(optarg, &cfg->threads)) return -1;
                 break;
             case 'c':
                 if (scan_metric(optarg, &cfg->connections)) return -1;
+                break;
+            case 'D':
+                if (!strcmp(optarg, "fixed")) { 
+                    cfg->dist = 0;
+                    printf("wahaha fixed\n");
+                }
+                if (!strcmp(optarg, "exp")) 
+                    cfg->dist = 1;
+                if (!strcmp(optarg, "norm")) 
+                    cfg->dist = 2;
+                if (!strcmp(optarg, "zipf")) 
+                    cfg->dist = 3;
                 break;
             case 'd':
                 if (scan_time(optarg, &cfg->duration)) return -1;

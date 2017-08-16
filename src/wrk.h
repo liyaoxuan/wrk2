@@ -29,6 +29,7 @@
 #define MAXO 16383
 #define MAXTHREADS 40
 
+
 typedef struct {
     pthread_t thread;
     aeEventLoop *loop;
@@ -70,9 +71,12 @@ typedef struct connection {
     int fd;
     SSL *ssl;
     double throughput;
+    uint64_t interval;
     uint64_t sent;
+    uint64_t estimate;
     uint64_t complete;
     uint64_t thread_start;
+    uint64_t thread_next;
     uint64_t start;
     char *request;
     size_t length;
