@@ -54,28 +54,30 @@ static void handler(int sig) {
 }
 
 static void usage() {
-    printf("Usage: wrk <options> <url>                            \n"
-           "  Options:                                            \n"
-           "    -c, --connections <N>  Connections to keep open   \n"
-           "    -D, --dist             exp, zipf     \n"
-           "    -d, --duration    <T>  Duration of test           \n"
-           "    -t, --threads     <N>  Number of threads to use   \n"
-           "                                                      \n"
-           "    -s, --script      <S>  Load Lua script file       \n"
-           "    -H, --header      <H>  Add header to request      \n"
-           "    -L  --latency          Print latency statistics   \n"
-           "    -U  --timeout     <T>  Socket/request timeout     \n"
-           "    -B, --batch_latency    Measure latency of whole   \n"
-           "                           batches of pipelined ops   \n"
-           "                           (as opposed to each op)    \n"
-           "    -v, --version          Print version details      \n"
-           "    -R, --rate        <T>  work rate (throughput)     \n"
-           "                           in requests/sec (total)    \n"
-           "                           [Required Parameter]       \n"
-           "                                                      \n"
-           "                                                      \n"
-           "  Numeric arguments may include a SI unit (1k, 1M, 1G)\n"
-           "  Time arguments may include a time unit (2s, 2m, 2h)\n");
+    printf("Usage: wrk <options> <url>                                       \n"
+           "  Options:                                                       \n"
+           "    -c, --connections <N>  Connections to keep open              \n"
+           "    -D, --dist             fixed, exp, norm, zipf                \n"
+           "    -P                     Print each request's latency          \n"
+           "    -p                     Print 99th latency every 0.2s to file \n"
+           "    -d, --duration    <T>  Duration of test                      \n"
+           "    -t, --threads     <N>  Number of threads to use              \n"
+           "                                                                 \n"
+           "    -s, --script      <S>  Load Lua script file                  \n"
+           "    -H, --header      <H>  Add header to request                 \n"
+           "    -L  --latency          Print latency statistics              \n"
+           "    -U  --timeout     <T>  Socket/request timeout                \n"
+           "    -B, --batch_latency    Measure latency of whole              \n"
+           "                           batches of pipelined ops              \n"
+           "                           (as opposed to each op)               \n"
+           "    -v, --version          Print version details                 \n"
+           "    -R, --rate        <T>  work rate (throughput)                \n"
+           "                           in requests/sec (total)               \n"
+           "                           [Required Parameter]                  \n"
+           "                                                                 \n"
+           "                                                                 \n"
+           "  Numeric arguments may include a SI unit (1k, 1M, 1G)           \n"
+           "  Time arguments may include a time unit (2s, 2m, 2h)            \n");
 }
 
 int main(int argc, char **argv) {
@@ -457,8 +459,7 @@ uint64_t gen_zipf(connection *conn)
     double alpha = 3;
 
     // Compute normalization constant on first call only
-    if (first == 1)
-    {
+    if (first == 1) {
         for (int i=1; i<=n; i++)
             c = c + (1.0 / pow((double) i, alpha));
         c = 1.0 / c;
@@ -471,19 +472,15 @@ uint64_t gen_zipf(connection *conn)
     }
 
   // Pull a uniform random number (0 < z < 1)
-    do
-    {
+    do {
         z = (double)rand()/RAND_MAX;
-    }
-    while ((z == 0) || (z == 1));
+    } while ((z == 0) || (z == 1));
 
     // Map z to the value
     sum_prob = 0;
-    for (int i=1; i<=n; i++)
-    {
+    for (int i=1; i<=n; i++) {
         sum_prob = sum_prob + c / pow((double) i, alpha);
-        if (sum_prob >= z)
-        {
+        if (sum_prob >= z) {
             zipf_value = i;
             break;
         }
@@ -491,9 +488,24 @@ uint64_t gen_zipf(connection *conn)
     return (uint64_t)(zipf_value*scalar);
 }
 
+uint64_t gen_exp(connection *c) {
+    double z;
+    double exp_value;
+    do {
+        z = (double)rand()/RAND_MAX;
+    } while ((z == 0) || (z == 1));
+    exp_value = (-log(z)*(c->interval));
+    return (uint64_t)(exp_value);
+}
+
 uint64_t gen_next(connection *c) {
     if (cfg.dist == 0) { // FIXED
         return c->interval;
+    }
+    else if (cfg.dist == 1) { // EXP
+        return gen_exp(c);
+    }
+    else if (cfg.dist == 2) {
     }
     else if (cfg.dist == 3) {
        return gen_zipf(c);
@@ -742,10 +754,8 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
                 if (scan_metric(optarg, &cfg->connections)) return -1;
                 break;
             case 'D':
-                if (!strcmp(optarg, "fixed")) { 
+                if (!strcmp(optarg, "fixed"))  
                     cfg->dist = 0;
-                    printf("wahaha fixed\n");
-                }
                 if (!strcmp(optarg, "exp")) 
                     cfg->dist = 1;
                 if (!strcmp(optarg, "norm")) 
@@ -765,7 +775,7 @@ static int parse_args(struct config *cfg, char **url, struct http_parser_url *pa
             case 'P': /* Shuang: print each requests's latency */
                 cfg->print_all_responses = true;
                 break;
-            case 'p': /* Shuang: print avg latency every 0.1s */
+            case 'p': /* Shuang: print avg latency every 0.2s */
                 cfg->print_realtime_latency = true;
                 break;
             case 'L':
