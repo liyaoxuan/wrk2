@@ -495,6 +495,7 @@ uint64_t gen_exp(connection *c) {
         z = (double)rand()/RAND_MAX;
     } while ((z == 0) || (z == 1));
     exp_value = (-log(z)*(c->interval));
+    //printf("%.2f %"PRIu64"\n", exp_value, (uint64_t)(exp_value));
     return (uint64_t)(exp_value);
 }
 
