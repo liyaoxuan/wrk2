@@ -136,7 +136,7 @@ int main(int argc, char **argv) {
         t->stop_at       = stop_at;
         t->complete      = 0;
         t->monitored     = 0;
-        t->target        = throughput/5; //Shuang
+        t->target        = throughput/10; //Shuang
         t->accum_latency = 0;
         t->L = script_create(cfg.script, url, headers);
         script_init(L, t, argc - optind, &argv[optind]);
@@ -273,9 +273,10 @@ void *thread_main(void *arg) {
         script_request(thread->L, &request, &length);
     }
     
-    if (cfg.print_realtime_latency) {
+    thread->ff = NULL;
+    if ((cfg.print_realtime_latency) && (thread->tid == 0)) {
         char filename[50];
-        snprintf(filename, 50, "/filer-01/datasets/nginx/real_%" PRIu64 ".txt", thread->tid);
+        snprintf(filename, 50, "/filer-01/datasets/nginx/%" PRIu64 ".txt", thread->tid);
         thread->ff = fopen(filename, "w");
     }
 
@@ -294,12 +295,12 @@ void *thread_main(void *arg) {
         c->complete   = 0;
         c->estimate   = 0;
         c->sent       = 0;
-        // Stagger connects 5 msec apart within thread:
-        aeCreateTimeEvent(loop, i * 5, delayed_initial_connect, c, NULL);
+        // Stagger connects 1 msec apart within thread:
+        aeCreateTimeEvent(loop, i, delayed_initial_connect, c, NULL);
     }
 
-    uint64_t calibrate_delay = CALIBRATE_DELAY_MS + (thread->connections * 5);
-    uint64_t timeout_delay = TIMEOUT_INTERVAL_MS + (thread->connections * 5);
+    uint64_t calibrate_delay = CALIBRATE_DELAY_MS + (thread->connections);
+    uint64_t timeout_delay = TIMEOUT_INTERVAL_MS + (thread->connections);
 
     aeCreateTimeEvent(loop, calibrate_delay, calibrate, thread, NULL);
     aeCreateTimeEvent(loop, timeout_delay, check_timeouts, thread, NULL);
@@ -309,7 +310,7 @@ void *thread_main(void *arg) {
 
     aeDeleteEventLoop(loop);
     zfree(thread->cs);
-    if (cfg.print_realtime_latency) fclose(thread->ff);
+    if (cfg.print_realtime_latency && thread->tid == 0) fclose(thread->ff);
 
     return NULL;
 }
@@ -566,6 +567,7 @@ static int response_complete(http_parser *parser) {
 
     // Record if needed, either last in batch or all, depending in cfg:
     if (cfg.record_all_responses) {
+        //printf("complete %"PRIu64" @ %"PRIu64"\n", c->complete, now);
         assert(now > c->actual_latency_start[c->complete & MAXO] );
         uint64_t actual_latency_timing = now - c->actual_latency_start[c->complete & MAXO];
         hdr_record_value(thread->latency_histogram, actual_latency_timing);
@@ -574,8 +576,7 @@ static int response_complete(http_parser *parser) {
         thread->monitored++;
         thread->accum_latency += actual_latency_timing;
         if (thread->monitored == thread->target) {       
-            if (cfg.print_realtime_latency) {
-              //  fprintf(thread->ff, "%" PRIu64 "\n", thread->lat[int(thread->monitored*0.99)]);
+            if (cfg.print_realtime_latency && thread->tid == 0) {
                 fprintf(thread->ff, "%" PRId64 "\n", hdr_value_at_percentile(thread->real_latency_histogram, 99));
                 fflush(thread->ff);
             }
@@ -659,6 +660,7 @@ static void socket_writeable(aeEventLoop *loop, int fd, void *data, int mask) {
         c->start = time_us();
         c->actual_latency_start[c->sent & MAXO] = c->start;
         //if (c->sent) printf("sent %"PRIu64" @ %"PRIu64"\n", c->sent, c->actual_latency_start[c->sent & MAXO]-c->actual_latency_start[(c->sent-1) & MAXO]);
+        //if (c->sent) printf("sent %"PRIu64" @ %"PRIu64"\n", c->sent, c->start);
         c->sent ++;
     }
 
@@ -666,8 +668,8 @@ static void socket_writeable(aeEventLoop *loop, int fd, void *data, int mask) {
     if (c->written == c->length) {
         c->written = 0;
         aeDeleteFileEvent(loop, fd, AE_WRITABLE);
+        aeCreateFileEvent(thread->loop, c->fd, AE_WRITABLE, socket_writeable, c);
     }
-    aeCreateFileEvent(thread->loop, c->fd, AE_WRITABLE, socket_writeable, c);
     return;
 
   error:
