@@ -19,9 +19,8 @@
   Some other features added:
   1. add -P parameter to print end-to-end latency of every request to files. The
   number of files is the same as the number of threads.
-  2. Ongoing: support more inter-arrival distribution. Currently, inter-arrival
   time is fixed, which is 1/(target QPS).
-  3. Ongoing: support varying target QPS to simulate e.g. diurnal patterns,
+  2. Ongoing: support varying target QPS to simulate e.g. diurnal patterns,
   spikes, etc.
 
   **README of wrk2: a HTTP benchmarking tool based mostly on wrk**
