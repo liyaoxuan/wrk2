@@ -21,24 +21,25 @@ static int script_thread_index(lua_State *);
 static int script_thread_newindex(lua_State *);
 static int script_wrk_lookup(lua_State *);
 static int script_wrk_connect(lua_State *);
+static int script_wrk_time_us(lua_State *);
 
 static void set_fields(lua_State *, int, const table_field *);
 static void set_field(lua_State *, int, char *, int);
 static int push_url_part(lua_State *, char *, struct http_parser_url *, enum http_parser_url_fields);
 
-static const struct luaL_reg addrlib[] = {
+static const struct luaL_Reg addrlib[] = {
     { "__tostring", script_addr_tostring   },
     { "__gc"    ,   script_addr_gc         },
     { NULL,         NULL                   }
 };
 
-static const struct luaL_reg statslib[] = {
+static const struct luaL_Reg statslib[] = {
     { "__index",    script_stats_get       },
     { "__len",      script_stats_len       },
     { NULL,         NULL                   }
 };
 
-static const struct luaL_reg threadlib[] = {
+static const struct luaL_Reg threadlib[] = {
     { "__index",    script_thread_index    },
     { "__newindex", script_thread_newindex },
     { NULL,         NULL                   }
@@ -67,6 +68,7 @@ lua_State *script_create(char *file, char *url, char **headers) {
     const table_field fields[] = {
         { "lookup",  LUA_TFUNCTION, script_wrk_lookup  },
         { "connect", LUA_TFUNCTION, script_wrk_connect },
+        { "time_us", LUA_TFUNCTION, script_wrk_time_us },
         { "path",    LUA_TSTRING,   path               },
         { NULL,      0,             NULL               },
     };
@@ -466,6 +468,14 @@ static int script_wrk_connect(lua_State *L) {
         close(fd);
     }
     lua_pushboolean(L, connected);
+    return 1;
+}
+
+static int script_wrk_time_us(lua_State *L) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    uint64_t now = (tv.tv_sec * 1000000) + tv.tv_usec;
+    lua_pushnumber(L, now);
     return 1;
 }
 
